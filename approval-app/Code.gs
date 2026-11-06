@@ -1,21 +1,5 @@
 /**
- * 승인 위임 앱 (실험용) - Code.gs
- *
- * 구글 스프레드시트에 연결된 Apps Script 입니다.
- * AI API 없이 "숫자"와 "키워드" 규칙만으로 문서를 승인 / 보류 / 반려로 나눕니다.
- *
- * [판정 규칙] (우선순위: 반려 > 보류 > 승인)
- *   반려: 제목 또는 내용에 금지 키워드가 있을 때
- *   보류: 금액이 한도를 넘을 때 / 필수 항목이 비었을 때 / 주의 키워드가 있을 때
- *   승인: 위에 해당하지 않을 때
- *
- * [처리 규칙]
- *   승인 + 중요도 하      -> 자동 승인, 기록만 남김
- *   승인 + 중요도 상, 중  -> 승인이어도 관리자에게 전송
- *   보류, 반려            -> 관리자에게 전송
- *
- * 기준값(금액 한도, 관리자 이메일, 키워드)은 '설정' 시트에서 고칩니다.
- * 처음 한 번 setup 함수를 실행하면 시트가 자동으로 만들어집니다.
+ * 승인 위임 앱 (실험용) - Code.gs (Vercel 연동 우회 버전)
  */
 
 var SHEET_LOG = '처리기록';
@@ -28,7 +12,6 @@ var LOG_HEADERS = [
   '중요도', '판정', '처리', '사유'
 ];
 
-// 설정 시트의 기본값 (이름, 값, 설명)
 var DEFAULT_CONFIG_ROWS = [
   ['금액한도', 1000000, '이 금액을 넘으면 보류 (원)'],
   ['관리자이메일', '', '알림 받을 이메일. 비우면 이 스크립트를 만든 사람에게 보냅니다'],
@@ -37,20 +20,42 @@ var DEFAULT_CONFIG_ROWS = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* 웹앱 진입점                                                         */
+/* 웹앱 진입점 및 외부 요청(POST) 처리                                     */
 /* ------------------------------------------------------------------ */
 
-function doGet() {
+function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('승인 위임 앱')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * 처음 한 번 편집기에서 직접 실행하세요.
- * 시트를 만들고, 메일 발송 권한 승인 창을 띄웁니다.
- */
+/** Vercel(외부)에서 보내는 fetch 요청을 처리하는 우회 통로 */
+function doPost(e) {
+  try {
+    var contents = e.postData.contents;
+    var payload = JSON.parse(contents);
+    var action = payload.action;
+    var result;
+
+    if (action === 'submitRequest') {
+      result = submitRequest(payload.form);
+    } else if (action === 'getRecent') {
+      result = getRecent(payload.limit);
+    } else if (action === 'getAppInfo') {
+      result = getAppInfo();
+    } else {
+      result = { error: '알 수 없는 요청입니다.' };
+    }
+
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 function setup() {
   ensureSheets_();
   var admin = getAdminEmail_(loadConfig_());
@@ -59,16 +64,14 @@ function setup() {
 }
 
 /* ------------------------------------------------------------------ */
-/* 화면에서 호출하는 함수                                              */
+/* 비즈니스 로직 함수들                                                */
 /* ------------------------------------------------------------------ */
 
-/** 화면에 보여줄 안내 정보 */
 function getAppInfo() {
   var cfg = loadConfig_();
   return { amountLimit: cfg.amountLimit };
 }
 
-/** 신청서 제출. form = {title, applicant, amount, content, importance} */
 function submitRequest(form) {
   var cfg = loadConfig_();
   var req = normalizeRequest_(form);
@@ -111,7 +114,6 @@ function submitRequest(form) {
   };
 }
 
-/** 최근 처리 내역 (최신순) */
 function getRecent(limit) {
   limit = limit || 10;
   var sheet = ensureSheets_().log;
@@ -127,11 +129,6 @@ function getRecent(limit) {
   });
 }
 
-/* ------------------------------------------------------------------ */
-/* 판정 로직 (순수 함수: 구글 서비스를 쓰지 않아서 따로 테스트 가능)     */
-/* ------------------------------------------------------------------ */
-
-/** 입력값을 정리합니다. */
 function normalizeRequest_(form) {
   form = form || {};
   var amountText = String(form.amount === undefined || form.amount === null ? '' : form.amount)
@@ -147,12 +144,10 @@ function normalizeRequest_(form) {
   };
 }
 
-/** 키워드 비교용: 공백 제거 + 소문자 (띄어쓰기가 달라도 찾기 위함) */
 function squash_(text) {
   return String(text || '').replace(/\s+/g, '').toLowerCase();
 }
 
-/** 쉼표로 적힌 키워드 목록을 배열로 */
 function splitKeywords_(text) {
   return String(text || '')
     .split(',')
@@ -160,7 +155,6 @@ function splitKeywords_(text) {
     .filter(function (k) { return k !== ''; });
 }
 
-/** 본문에서 발견된 키워드 목록 */
 function findKeywords_(text, keywords) {
   var target = squash_(text);
   return keywords.filter(function (k) {
@@ -168,23 +162,16 @@ function findKeywords_(text, keywords) {
   });
 }
 
-/**
- * 판정.
- * cfg = {amountLimit:Number, bannedKeywords:[], cautionKeywords:[]}
- * 반환: {result, handling, toAdmin, reasons[]}
- */
 function evaluateRequest_(req, cfg) {
   var banned = [];
   var hold = [];
   var text = req.title + ' ' + req.content;
 
-  // 1) 반려: 금지 키워드
   var bannedHits = findKeywords_(text, cfg.bannedKeywords);
   if (bannedHits.length > 0) {
     banned.push('금지 키워드 포함: ' + bannedHits.join(', '));
   }
 
-  // 2) 보류: 누락 / 형식 오류
   var missing = [];
   if (!req.title) missing.push('제목');
   if (!req.applicant) missing.push('신청자');
@@ -199,18 +186,15 @@ function evaluateRequest_(req, cfg) {
     hold.push('중요도 미선택: 상, 중, 하 중 선택');
   }
 
-  // 3) 보류: 금액 한도 초과 (중요도와 상관없이 숫자 기준이 우선)
   if (!isNaN(req.amount) && req.amount > cfg.amountLimit) {
     hold.push('금액 한도 초과: ' + formatWon_(req.amount) + ' > ' + formatWon_(cfg.amountLimit));
   }
 
-  // 4) 보류: 주의 키워드
   var cautionHits = findKeywords_(text, cfg.cautionKeywords);
   if (cautionHits.length > 0) {
     hold.push('주의 키워드 포함: ' + cautionHits.join(', '));
   }
 
-  // 우선순위: 반려 > 보류 > 승인
   if (banned.length > 0) {
     return {
       result: '반려',
@@ -228,7 +212,6 @@ function evaluateRequest_(req, cfg) {
     };
   }
 
-  // 승인: 중요도 상, 중이면 관리자에게도 전송
   if (req.importance === '상' || req.importance === '중') {
     return {
       result: '승인',
@@ -249,11 +232,6 @@ function formatWon_(n) {
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '원';
 }
 
-/* ------------------------------------------------------------------ */
-/* 시트, 설정, 알림                                                    */
-/* ------------------------------------------------------------------ */
-
-/** 시트가 없으면 만들고 {log, config} 를 돌려줍니다. */
 function ensureSheets_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -278,7 +256,6 @@ function ensureSheets_() {
   return { log: log, config: config };
 }
 
-/** 설정 시트를 읽습니다. 비어 있으면 기본값을 씁니다. */
 function loadConfig_() {
   var sheet = ensureSheets_().config;
   var map = {};
@@ -305,14 +282,12 @@ function getAdminEmail_(cfg) {
   return Session.getEffectiveUser().getEmail();
 }
 
-/** 접수번호: R-날짜-순번 */
 function nextReceiptNo_(logSheet) {
-  var seq = Math.max(logSheet.getLastRow(), 1); // 헤더 포함 행 수 = 다음 순번
+  var seq = Math.max(logSheet.getLastRow(), 1);
   var date = Utilities.formatDate(new Date(), TIME_ZONE, 'yyMMdd');
   return 'R-' + date + '-' + ('000' + seq).slice(-3);
 }
 
-/** 관리자에게 이메일 알림. 실패해도 접수는 유지합니다. */
 function notifyAdmin_(receiptNo, req, verdict, cfg) {
   try {
     var to = getAdminEmail_(cfg);

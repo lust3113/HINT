@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: sans-serif; margin: 0; padding: 16px; background: #f4f6fa; color: #1f2937; }
+  h1 { font-size: 20px; margin: 0 0 12px; color: #0C4DA2; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tabs button { flex: 1; margin: 0; padding: 10px; background: #dfe6f1; color: #0C4DA2; }
+  .tabs button.on { background: #0C4DA2; color: #fff; }
+  label { display: block; font-size: 14px; margin: 12px 0 4px; font-weight: bold; }
+  input, select { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #c7cfdb; border-radius: 8px; background: #fff; }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  button { width: 100%; margin-top: 20px; padding: 14px; font-size: 16px; border: 0; border-radius: 8px; background: #0C4DA2; color: #fff; }
+  button:disabled { background: #9aa8bd; }
+  #msg { margin-top: 14px; font-size: 15px; min-height: 22px; }
+  .ok { color: #16794a; } .bad { color: #c0392b; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 15px; }
+  .check input { width: auto; }
+  .sum { display: flex; gap: 8px; margin: 14px 0; }
+  .sum div { flex: 1; background: #fff; border-radius: 8px; padding: 10px 4px; text-align: center; font-size: 13px; color: #556; }
+  .sum b { display: block; font-size: 22px; color: #0C4DA2; }
+  .item { background: #fff; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 15px; }
+  .item small { color: #667; }
+  .tag { font-size: 12px; padding: 2px 6px; border-radius: 6px; background: #fdecea; color: #c0392b; margin-left: 6px; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+  <h1>내 근무 알리미</h1>
+  <div class="tabs">
+    <button id="tabIn" class="on" onclick="showTab('in')">입력</button>
+    <button id="tabList" onclick="showTab('list')">목록</button>
+  </div>
+
+  <div id="pageIn">
+    <label for="date">날짜</label>
+    <input type="date" id="date">
+    <label for="worker">근무자</label>
+    <select id="worker">
+      <option value="">고르기</option>
+      <option>JH</option><option>SY</option><option>MK</option><option>DW</option>
+    </select>
+    <div class="row">
+      <div><label for="start">시작</label><input type="time" id="start"></div>
+      <div><label for="end">끝</label><input type="time" id="end"></div>
+    </div>
+    <label for="state">상태</label>
+    <select id="state">
+      <option>확정</option><option>변경</option><option>대타 요청</option>
+    </select>
+    <label for="memo">메모 (비워도 됨)</label>
+    <input type="text" id="memo" maxlength="50">
+    <button id="btn" onclick="save()">저장</button>
+    <div id="msg"></div>
+  </div>
+
+  <div id="pageList" class="hide">
+    <label for="fWorker">근무자</label>
+    <select id="fWorker" onchange="loadList()">
+      <option>전체</option><option selected>JH</option><option>SY</option><option>MK</option><option>DW</option>
+    </select>
+    <label class="check"><input type="checkbox" id="fWeek" checked onchange="loadList()"> 이번 주만 (월~일)</label>
+    <div class="sum">
+      <div><b id="sCount">-</b>근무 횟수</div>
+      <div><b id="sHours">-</b>시간 합계</div>
+      <div><b id="sChanged">-</b>바뀐 근무</div>
+    </div>
+    <div id="range"></div>
+    <div id="list">불러오는 중...</div>
+  </div>
+<script>
+  function show(text, cls) {
+    const m = document.getElementById('msg');
+    m.textContent = text;
+    m.className = cls;
+  }
+  function val(id) { return document.getElementById(id).value.trim(); }
+
+  function showTab(t) {
+    document.getElementById('pageIn').classList.toggle('hide', t !== 'in');
+    document.getElementById('pageList').classList.toggle('hide', t !== 'list');
+    document.getElementById('tabIn').classList.toggle('on', t === 'in');
+    document.getElementById('tabList').classList.toggle('on', t === 'list');
+    if (t === 'list') loadList();
+  }
+
+  function save() {
+    const form = { date: val('date'), worker: val('worker'), start: val('start'), end: val('end'), state: val('state'), memo: val('memo') };
+    if (!form.date) return show('날짜를 골라 주세요.', 'bad');
+    if (!form.worker) return show('근무자를 골라 주세요.', 'bad');
+    if (!form.start || !form.end) return show('시작과 끝 시각을 넣어 주세요.', 'bad');
+    if (form.end <= form.start) return show('끝 시각이 시작 시각보다 늦어야 합니다.', 'bad');
+    const btn = document.getElementById('btn');
+    btn.disabled = true;
+    show('저장하는 중...', '');
+    google.script.run
+      .withSuccessHandler(function (text) { btn.disabled = false; show(text, 'ok'); })
+      .withFailureHandler(function (e) { btn.disabled = false; show('저장하지 못했습니다: ' + e.message, 'bad'); })
+      .addShift(form);
+  }
+
+  function loadList() {
+    const list = document.getElementById('list');
+    list.textContent = '불러오는 중...';
+    google.script.run
+      .withSuccessHandler(drawList)
+      .withFailureHandler(function (e) { list.textContent = '불러오지 못했습니다: ' + e.message; })
+      .getList(val('fWorker'), document.getElementById('fWeek').checked);
+  }
+
+  function drawList(res) {
+    document.getElementById('sCount').textContent = res.summary.count;
+    document.getElementById('sHours').textContent = res.summary.hours;
+    document.getElementById('sChanged').textContent = res.summary.changed;
+    document.getElementById('range').textContent = res.from ? res.from + ' ~ ' + res.to : '';
+    const list = document.getElementById('list');
+    list.textContent = '';
+    if (res.rows.length === 0) { list.textContent = '조건에 맞는 근무가 없습니다.'; return; }
+    res.rows.forEach(function (r) {
+      const div = document.createElement('div');
+      div.className = 'item';
+      const head = document.createElement('div');
+      head.textContent = r.date + '  ' + r.start + '~' + r.end + '  ' + r.worker;
+      if (r.state !== '확정') {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = r.state;
+        head.appendChild(tag);
+      }
+      div.appendChild(head);
+      if (r.memo) {
+        const memo = document.createElement('small');
+        memo.textContent = r.memo;
+        div.appendChild(memo);
+      }
+      list.appendChild(div);
+    });
+  }
+</script>
+</body>
+</html>

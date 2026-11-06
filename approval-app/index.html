@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>승인 위임 앱</title>
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --ink: #1b2430;
+      --muted: #5b6676;
+      --line: #d5dbe4;
+      --brand: #1f5fd1;
+      --brand-dark: #174aa5;
+      --ok: #137a3f;
+      --ok-bg: #e5f5ec;
+      --hold: #9a6200;
+      --hold-bg: #fdf1d8;
+      --no: #b3261e;
+      --no-bg: #fbe6e4;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+      font-size: 17px;
+      line-height: 1.5;
+      padding: 16px 16px calc(32px + env(safe-area-inset-bottom));
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    h1 { font-size: 24px; margin: 8px 0 4px; }
+    .sub { color: var(--muted); font-size: 15px; margin: 0 0 16px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px 16px;
+      margin-bottom: 16px;
+    }
+    label { display: block; font-weight: 700; margin: 16px 0 6px; }
+    label:first-of-type { margin-top: 0; }
+    .hint { color: var(--muted); font-size: 14px; font-weight: 400; }
+    input, select, textarea {
+      width: 100%;
+      min-height: 56px;
+      padding: 12px 14px;
+      font: inherit;
+      color: var(--ink);
+      background: #fff;
+      border: 2px solid var(--line);
+      border-radius: 12px;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--brand);
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      min-height: 60px;
+      margin-top: 20px;
+      font: inherit;
+      font-size: 19px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--brand);
+      border: 0;
+      border-radius: 14px;
+      cursor: pointer;
+    }
+    .btn:active { background: var(--brand-dark); transform: translateY(1px); }
+    .btn[disabled] { background: #9db3d9; cursor: wait; }
+    .btn.ghost {
+      background: #fff;
+      color: var(--brand);
+      border: 2px solid var(--brand);
+      margin-top: 12px;
+    }
+    .error { color: var(--no); font-weight: 700; margin-top: 12px; }
+    .hidden { display: none; }
+
+    .result { border-width: 2px; text-align: center; }
+    .result .badge { font-size: 34px; font-weight: 800; margin: 4px 0; }
+    .result .handling { font-size: 18px; font-weight: 700; }
+    .result ul { text-align: left; margin: 12px 0 0; padding-left: 20px; color: var(--ink); }
+    .result .receipt { color: var(--muted); font-size: 14px; margin-top: 12px; }
+    .r-ok { background: var(--ok-bg); border-color: var(--ok); }
+    .r-ok .badge { color: var(--ok); }
+    .r-hold { background: var(--hold-bg); border-color: var(--hold); }
+    .r-hold .badge { color: var(--hold); }
+    .r-no { background: var(--no-bg); border-color: var(--no); }
+    .r-no .badge { color: var(--no); }
+
+    .history h2 { font-size: 18px; margin: 0 0 8px; }
+    .item { padding: 12px 0; border-top: 1px solid var(--line); }
+    .item:first-of-type { border-top: 0; }
+    .item .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .item .t { font-weight: 700; word-break: break-all; }
+    .tag { flex: none; font-size: 14px; font-weight: 800; padding: 2px 10px; border-radius: 999px; }
+    .tag.ok { color: var(--ok); background: var(--ok-bg); }
+    .tag.hold { color: var(--hold); background: var(--hold-bg); }
+    .tag.no { color: var(--no); background: var(--no-bg); }
+    .item .meta { color: var(--muted); font-size: 14px; }
+    .empty { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>승인 위임 앱</h1>
+    <p class="sub">가상 데이터 실험용 · 기준에 따라 승인, 보류, 반려로 나뉩니다.</p>
+
+    <form id="form" class="card" novalidate>
+      <label for="title">제목</label>
+      <input id="title" name="title" type="text" autocomplete="off" placeholder="예: 사무용품 구매">
+
+      <label for="applicant">신청자</label>
+      <input id="applicant" name="applicant" type="text" autocomplete="off" placeholder="이름 입력">
+
+      <label for="amount">금액 (원) <span class="hint" id="limitHint"></span></label>
+      <input id="amount" name="amount" type="text" inputmode="numeric" autocomplete="off" placeholder="예: 350000">
+
+      <label for="content">내용</label>
+      <textarea id="content" name="content" placeholder="신청 내용을 적어주세요"></textarea>
+
+      <label for="importance">중요도</label>
+      <select id="importance" name="importance">
+        <option value="">선택하세요</option>
+        <option value="상">상</option>
+        <option value="중">중</option>
+        <option value="하">하</option>
+      </select>
+
+      <div id="error" class="error hidden" role="alert"></div>
+      <button id="submit" class="btn" type="submit">제출하기</button>
+    </form>
+
+    <section id="result" class="card result hidden" aria-live="polite">
+      <div id="badge" class="badge"></div>
+      <div id="handling" class="handling"></div>
+      <ul id="reasons"></ul>
+      <div id="receipt" class="receipt"></div>
+      <button id="again" class="btn ghost" type="button">새 신청서 작성</button>
+    </section>
+
+    <section class="card history">
+      <h2>최근 처리 내역</h2>
+      <div id="history"><p class="empty">불러오는 중...</p></div>
+      <button id="refresh" class="btn ghost" type="button">새로고침</button>
+    </section>
+  </div>
+
+  <script>
+    var $ = function (id) { return document.getElementById(id); };
+
+    function run(fnName, args, onOk, onFail) {
+      if (!window.google || !google.script || !google.script.run) {
+        onFail(new Error('이 화면은 Apps Script 웹앱 주소에서 열어야 동작합니다.'));
+        return;
+      }
+      var runner = google.script.run
+        .withSuccessHandler(onOk)
+        .withFailureHandler(onFail);
+      runner[fnName].apply(runner, args || []);
+    }
+
+    function won(n) {
+      return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '원';
+    }
+
+    function showError(msg) {
+      var el = $('error');
+      el.textContent = msg || '';
+      el.classList.toggle('hidden', !msg);
+    }
+
+    function tagClass(result) {
+      return result === '승인' ? 'ok' : (result === '보류' ? 'hold' : 'no');
+    }
+
+    /* 금액 칸: 숫자만, 천 단위 쉼표 */
+    $('amount').addEventListener('input', function () {
+      var digits = this.value.replace(/[^\d]/g, '');
+      this.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
+    });
+
+    function renderResult(r) {
+      var box = $('result');
+      box.className = 'card result r-' + tagClass(r.result);
+      $('badge').textContent = r.result;
+      $('handling').textContent = r.handling;
+      var ul = $('reasons');
+      ul.innerHTML = '';
+      (r.reasons || []).forEach(function (text) {
+        var li = document.createElement('li');
+        li.textContent = text;
+        ul.appendChild(li);
+      });
+      var note = r.receiptNo ? '접수번호 ' + r.receiptNo : '';
+      if (r.toAdmin) {
+        note += r.notified ? ' · 관리자에게 알림을 보냈어요' : ' · 관리자 알림 발송 실패 (기록은 저장됨)';
+      }
+      $('receipt').textContent = note;
+      $('form').classList.add('hidden');
+      box.classList.remove('hidden');
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderHistory(list) {
+      var box = $('history');
+      box.innerHTML = '';
+      if (!list || list.length === 0) {
+        var p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = '아직 처리 내역이 없어요.';
+        box.appendChild(p);
+        return;
+      }
+      list.forEach(function (it) {
+        var row = document.createElement('div');
+        row.className = 'item';
+
+        var top = document.createElement('div');
+        top.className = 'top';
+        var t = document.createElement('span');
+        t.className = 't';
+        t.textContent = it.title;
+        var tag = document.createElement('span');
+        tag.className = 'tag ' + tagClass(it.result);
+        tag.textContent = it.result;
+        top.appendChild(t);
+        top.appendChild(tag);
+
+        var meta = document.createElement('div');
+        meta.className = 'meta';
+        var amount = Number(String(it.amount).replace(/[^\d]/g, ''));
+        meta.textContent = it.applicant + ' · ' + (amount ? won(amount) : it.amount) +
+          ' · 중요도 ' + it.importance + ' · ' + it.handling;
+
+        row.appendChild(top);
+        row.appendChild(meta);
+        box.appendChild(row);
+      });
+    }
+
+    function loadHistory() {
+      run('getRecent', [10], renderHistory, function (e) {
+        $('history').innerHTML = '';
+        var p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = '내역을 불러오지 못했어요. ' + (e && e.message ? e.message : '');
+        $('history').appendChild(p);
+      });
+    }
+
+    function resetForm() {
+      $('form').reset();
+      showError('');
+      $('result').classList.add('hidden');
+      $('form').classList.remove('hidden');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    $('form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      showError('');
+      var data = {
+        title: $('title').value,
+        applicant: $('applicant').value,
+        amount: $('amount').value,
+        content: $('content').value,
+        importance: $('importance').value
+      };
+      var btn = $('submit');
+      btn.disabled = true;
+      btn.textContent = '처리 중...';
+      run('submitRequest', [data], function (r) {
+        btn.disabled = false;
+        btn.textContent = '제출하기';
+        renderResult(r);
+        loadHistory();
+      }, function (e) {
+        btn.disabled = false;
+        btn.textContent = '제출하기';
+        showError('제출에 실패했어요. ' + (e && e.message ? e.message : ''));
+      });
+    });
+
+    $('again').addEventListener('click', resetForm);
+    $('refresh').addEventListener('click', loadHistory);
+
+    run('getAppInfo', [], function (info) {
+      if (info && info.amountLimit) {
+        $('limitHint').textContent = '(한도 ' + won(info.amountLimit) + ')';
+      }
+    }, function () {});
+    loadHistory();
+  </script>
+</body>
+</html>

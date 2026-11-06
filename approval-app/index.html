@@ -156,17 +156,34 @@
   </div>
 
   <script>
+    // ⚠️ 구글 앱스 스크립트 배포 후 발급받은 웹앱 URL을 여기에 입력하세요!
+    var SCRIPT_URL = 'https://script.google.com/macros/s/여기에_배포된_웹앱_URL/exec';
+
     var $ = function (id) { return document.getElementById(id); };
 
     function run(fnName, args, onOk, onFail) {
-      if (!window.google || !google.script || !google.script.run) {
-        onFail(new Error('이 화면은 Apps Script 웹앱 주소에서 열어야 동작합니다.'));
-        return;
+      var payload = { action: fnName };
+      if (fnName === 'submitRequest') {
+        payload.form = args[0];
+      } else if (fnName === 'getRecent') {
+        payload.limit = args[0];
       }
-      var runner = google.script.run
-        .withSuccessHandler(onOk)
-        .withFailureHandler(onFail);
-      runner[fnName].apply(runner, args || []);
+
+      fetch(SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && data.error) {
+          onFail(new Error(data.error));
+        } else {
+          onOk(data);
+        }
+      })
+      .catch(function (err) {
+        onFail(new Error('서버 통신에 실패했습니다: ' + err.message));
+      });
     }
 
     function won(n) {
@@ -259,10 +276,11 @@
     }
 
     function resetForm() {
-      $('form').reset();
+      var formEl = $('form');
+      if (formEl) formEl.reset();
       showError('');
       $('result').classList.add('hidden');
-      $('form').classList.remove('hidden');
+      if (formEl) formEl.classList.remove('hidden');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
